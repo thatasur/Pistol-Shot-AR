@@ -1,0 +1,7 @@
+{
+  "name": "Pistol-Shot AR",
+  "description": "An AR gesture-controlled shooting game using MediaPipe and Three.js. Use a pistol hand gesture to aim and pull the thumb to shoot flying discs.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
