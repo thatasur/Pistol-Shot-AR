@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
+import { GoogleGenAI } from "@google/genai";
 import { GameState, Enemy, FloatingText } from './types';
 import { ENEMY_COUNT, SPAWN_RADIUS, SPEED_MIN, SPEED_MAX, AIM_ASSIST_RADIUS, AIM_ASSIST_STRENGTH, DETECTION_FREQ_MS, TRIGGER_THRESHOLD } from './constants';
 
@@ -17,6 +18,9 @@ const App: React.FC = () => {
     hitFlash: null
   });
 
+  const [bgImage, setBgImage] = useState<string>('');
+  const [isGeneratingBg, setIsGeneratingBg] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,6 +36,42 @@ const App: React.FC = () => {
   const lastDetectionRef = useRef<number>(0);
   const isTriggeredRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const aiRef = useRef<any>(null);
+
+  // AI Background Generation
+  const generateBackground = useCallback(async (context: string) => {
+    if (isGeneratingBg) return;
+    setIsGeneratingBg(true);
+    
+    try {
+      if (!aiRef.current) {
+        aiRef.current = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      }
+
+      const prompt = `A cinematic, ultra-high-definition tactical cyber-neon background for a VR shooting range. 
+      Theme: ${context}. 
+      Visuals: Glowing grid lines, futuristic data streams, bokeh neon lights, dark atmospheric depth, 8k resolution, sci-fi concept art. 
+      No people, no UI elements, just the environment.`;
+
+      const response = await aiRef.current.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: [{ parts: [{ text: prompt }] }],
+        config: { imageConfig: { aspectRatio: "16:9" } }
+      });
+
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          const base64Data = part.inlineData.data;
+          setBgImage(`data:image/png;base64,${base64Data}`);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("AI Generation Error:", err);
+    } finally {
+      setIsGeneratingBg(false);
+    }
+  }, [isGeneratingBg]);
 
   const playSound = (frequency: number, type: OscillatorType = 'sine', duration = 0.2, volume = 0.3) => {
     if (!audioContextRef.current) return;
@@ -193,7 +233,8 @@ const App: React.FC = () => {
       }));
       
       playSound(600 + (gameState.combo * 20), 'sine', 0.3, 0.4);
-      
+      generateBackground(`successful neutralization, kinetic energy explosion, neon green pulse, data burst`);
+
       const hitPos = enemy.mesh.position.clone();
       vfxRef.current.push({
         id: Math.random().toString(),
@@ -203,7 +244,6 @@ const App: React.FC = () => {
         life: 1.0
       });
 
-      // Explosion scale animation
       enemy.mesh.scale.multiplyScalar(2.0);
       (enemy.mesh.material as THREE.MeshPhongMaterial).emissive.setHex(0xffffff);
       
@@ -216,7 +256,8 @@ const App: React.FC = () => {
       triggerFlash('miss');
       setGameState(prev => ({ ...prev, combo: 0 }));
       playSound(100, 'sawtooth', 0.2, 0.2);
-      
+      generateBackground(`missed target, red warning glitch, tactical error, distorted neon`);
+
       const targetPos = origin.clone().add(direction.clone().multiplyScalar(15));
       vfxRef.current.push({
         id: Math.random().toString(),
@@ -329,6 +370,7 @@ const App: React.FC = () => {
 
     camera.start().then(() => {
       setGameState(prev => ({ ...prev, loading: false, statusMessage: "Uplink Established" }));
+      generateBackground("initial tactical training environment, neon blue grid, futuristic hangar");
     });
 
     let animationId: number;
@@ -385,9 +427,27 @@ const App: React.FC = () => {
       <div className={`absolute inset-0 z-[40] pointer-events-none transition-opacity duration-150 ${gameState.hitFlash === 'hit' ? 'bg-green-500/20 opacity-100' : 'opacity-0'}`} />
       <div className={`absolute inset-0 z-[40] pointer-events-none transition-opacity duration-150 ${gameState.hitFlash === 'miss' ? 'bg-red-500/20 opacity-100' : 'opacity-0'}`} />
 
+      {/* Background Layer: AI Image */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center transition-all duration-1000 ease-in-out"
+        style={{ 
+          backgroundImage: bgImage ? `url(${bgImage})` : 'none',
+          filter: 'brightness(0.5) contrast(1.2)'
+        }}
+      />
+
+      {/* AI Generating Indicator */}
+      {isGeneratingBg && (
+        <div className="absolute bottom-10 right-10 z-[35] flex items-center gap-3">
+          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-ping" />
+          <span className="text-cyan-400 text-[10px] uppercase tracking-[0.3em]">AI Painting Environment...</span>
+        </div>
+      )}
+
+      {/* Hidden Camera Layer for MediaPipe */}
       <video
         ref={videoRef}
-        className="absolute inset-0 w-full h-full object-cover grayscale contrast-125 opacity-40 scale-x-[-1]"
+        className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
         playsInline
         muted
       />
@@ -399,7 +459,7 @@ const App: React.FC = () => {
         <div className="flex justify-between items-start pointer-events-auto">
           <div className="flex flex-col gap-2">
             <div className={`bg-black/80 backdrop-blur-xl border-l-4 border-red-500 p-4 shadow-[0_0_30px_rgba(239,68,68,0.3)] transition-transform duration-100 ${gameState.hitFlash === 'hit' ? 'scale-110' : 'scale-100'}`}>
-              <h1 className="text-red-500 font-black text-xs tracking-widest uppercase italic opacity-70">Tactical Range // Alpha 0.4</h1>
+              <h1 className="text-red-500 font-black text-xs tracking-widest uppercase italic opacity-70">Neural Range // v2.0-AI</h1>
               <div className="flex items-baseline gap-3">
                 <span className="text-white text-3xl font-black">{gameState.score.toLocaleString()}</span>
                 <span className="text-red-500 text-xs font-bold">PTS</span>
@@ -415,7 +475,7 @@ const App: React.FC = () => {
 
           <div className="flex flex-col items-end gap-2">
             <div className={`transition-all duration-300 ${gameState.handDetected ? 'bg-green-500 shadow-[0_0_20px_#22c55e]' : 'bg-red-500 shadow-[0_0_10px_#ef4444]'} w-3 h-3 rounded-full`} />
-            <span className="text-[10px] text-white/50 uppercase tracking-widest">Hand Sync</span>
+            <span className="text-[10px] text-white/50 uppercase tracking-widest">Neural Sync</span>
           </div>
         </div>
 
@@ -442,9 +502,9 @@ const App: React.FC = () => {
         {/* Tactical Overlay */}
         {!gameState.handDetected && !gameState.loading && (
           <div className="bg-black/90 backdrop-blur-md p-6 rounded-sm text-center mx-auto mb-12 border border-red-500/30 max-w-sm">
-            <p className="text-red-500 font-black text-lg animate-pulse tracking-tighter uppercase italic">Offline // Calibrate Link</p>
+            <p className="text-red-500 font-black text-lg animate-pulse tracking-tighter uppercase italic">Link Lost // Calibrate Hand</p>
             <p className="text-white/40 text-[10px] mt-2 leading-tight uppercase tracking-widest">
-              Extend index and thumb to initialize pistol gesture.<br/>Pull thumb to trigger discharge.
+              Position hand in view.<br/>Standard Pistol Gesture required.
             </p>
           </div>
         )}
@@ -468,8 +528,8 @@ const App: React.FC = () => {
       {!audioContextRef.current && !gameState.loading && (
         <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-3xl flex flex-col items-center justify-center gap-8 p-12 text-center">
           <div className="space-y-2">
-            <h1 className="text-white font-black text-6xl tracking-tighter uppercase italic italic">Neon<span className="text-red-500">Grip</span></h1>
-            <p className="text-white/40 text-xs tracking-[0.5em] uppercase">Advanced AR Combat Training</p>
+            <h1 className="text-white font-black text-6xl tracking-tighter uppercase italic">Neon<span className="text-red-500">Grip</span></h1>
+            <p className="text-white/40 text-xs tracking-[0.5em] uppercase">AI Generated Combat Simulation</p>
           </div>
           <button 
             onClick={handleStartAudio}
@@ -477,12 +537,12 @@ const App: React.FC = () => {
           >
             <div className="absolute inset-0 bg-red-600 group-hover:bg-red-500 transition-colors" />
             <div className="absolute inset-0 border-4 border-white opacity-0 group-hover:opacity-20 transition-opacity" />
-            <span className="relative text-white font-black text-2xl tracking-widest uppercase italic">Initialize</span>
+            <span className="relative text-white font-black text-2xl tracking-widest uppercase italic">Initialize Neural Link</span>
           </button>
           <div className="text-[10px] text-white/30 uppercase tracking-[0.2em] max-w-xs space-y-1">
-            <p>1. Grant Camera Access</p>
-            <p>2. Form Pistol with Hand</p>
-            <p>3. Aim & Neutralize Targets</p>
+            <p>1. Camera Tracking Enabled (Invisible)</p>
+            <p>2. AI Generates Environments on Interaction</p>
+            <p>3. Hit Targets to Evolve the Simulation</p>
           </div>
         </div>
       )}
